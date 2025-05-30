@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>The Zone Menu</title>
+        <style>
+            body {
+                margin: 0;
+                background: #2e2e2e;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                overflow: hidden;
+                font-family: sans-serif;
+            }
+
+            .book {
+                width: 90%;
+                max-width: 1000px;
+                display: flex;
+                position: relative;
+                perspective: 2000px;
+            }
+
+            .page {
+                width: 50%;
+                height: 100%;
+                background: white;
+                overflow: hidden;
+                transition: transform 1s ease;
+                backface-visibility: hidden;
+                box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+                transform-origin: left;
+            }
+
+            .page canvas {
+                width: 100%;
+                height: auto;
+                display: block;
+            }
+
+            #left-page {
+                transform-origin: right center;
+                z-index: 1;
+            }
+
+            #right-page {
+                transform-origin: left center;
+                z-index: 2;
+            }
+
+            .page.flip {
+                transform: rotateY(-180deg);
+            }
+
+            .page.flip_mirrored {
+                transform: rotateY(180deg);
+            }
+
+            .nav-btn {
+                position: absolute;
+                top: 50%;
+                transform: translateY(-50%);
+                font-size: 2rem;
+                background: rgba(0, 0, 0, 0.4);
+                color: white;
+                border: none;
+                padding: 10px;
+                cursor: pointer;
+                z-index: 10;
+            }
+
+            #prev-btn {
+                left: -50px;
+            }
+
+            #next-btn {
+                right: -50px;
+            }
+
+            .hidden {
+                visibility: hidden;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="book">
+            <button class="nav-btn" id="prev-btn">&#8592;</button>
+            <div class="page" id="left-page">
+                <canvas id="canvas-left"></canvas>
+            </div>
+            <div class="page" id="right-page">
+                <canvas id="canvas-right"></canvas>
+            </div>
+            <button class="nav-btn" id="next-btn">&#8594;</button>
+        </div>
+
+        <!-- PDF.js library -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+        <script>
+            const url = "menu.pdf";
+            //const url =
+            //    "https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf";
+            const pdfjsLib = window["pdfjs-dist/build/pdf"];
+
+            let pdfDoc = null;
+            let currentPage = 1;
+
+            const canvasLeft = document.getElementById("canvas-left");
+            const canvasRight = document.getElementById("canvas-right");
+            const ctxLeft = canvasLeft.getContext("2d");
+            const ctxRight = canvasRight.getContext("2d");
+
+            const leftPage = document.getElementById("left-page");
+            const rightPage = document.getElementById("right-page");
+
+            function renderPage(num, canvas, ctx) {
+                pdfDoc
+                    .getPage(num)
+                    .then((page) => {
+                        const viewport = page.getViewport({ scale: 1.5 });
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+
+                        const renderContext = {
+                            canvasContext: ctx,
+                            viewport: viewport,
+                        };
+                        page.render(renderContext);
+                    })
+                    .catch(() => {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    });
+            }
+
+            /*function renderSpread(pageNum) {
+                if (pageNum < 1) pageNum = 1;
+                if (pageNum > pdfDoc.numPages) pageNum = pdfDoc.numPages;
+
+                renderPage(pageNum, canvasLeft, ctxLeft);
+                renderPage(pageNum + 1, canvasRight, ctxRight);
+            }*/
+            function renderSpread(pageNum) {
+                // Reset both
+                ctxLeft.clearRect(0, 0, canvasLeft.width, canvasLeft.height);
+                ctxRight.clearRect(0, 0, canvasRight.width, canvasRight.height);
+                leftPage.classList.remove("flip-right");
+                rightPage.classList.remove("flip-left");
+
+                if (pageNum === 1) {
+                    console.log("rendering 1st page only");
+                    leftPage.classList.add("hidden");
+                    renderPage(1, canvasRight, ctxRight);
+                } else {
+                    leftPage.classList.remove("hidden");
+                    renderPage(pageNum - 1, canvasLeft, ctxLeft);
+                    renderPage(pageNum, canvasRight, ctxRight);
+                }
+            }
+
+            function flipNext() {
+                if (currentPage + 2 <= pdfDoc.numPages) {
+                    //leftPage.classList.add("flip_mirrored");
+                    rightPage.classList.add("flip");
+                    setTimeout(() => {
+                        currentPage += 2;
+                        renderSpread(currentPage);
+                        //leftPage.classList.remove("flip_mirrored");
+                        rightPage.classList.remove("flip");
+                    }, 500);
+                }
+            }
+
+            function flipPrev() {
+                if (currentPage - 2 >= 1) {
+                    leftPage.classList.add("flip_mirrored");
+                    //rightPage.classList.add("flip");
+                    setTimeout(() => {
+                        currentPage -= 2;
+                        renderSpread(currentPage);
+                        leftPage.classList.remove("flip_mirrored");
+                        //rightPage.classList.remove("flip");
+                    }, 500);
+                }
+            }
+
+            document
+                .getElementById("next-btn")
+                .addEventListener("click", flipNext);
+            document
+                .getElementById("prev-btn")
+                .addEventListener("click", flipPrev);
+            window.addEventListener("keydown", (e) => {
+                if (e.key === "ArrowRight") flipNext();
+                if (e.key === "ArrowLeft") flipPrev();
+            });
+
+            pdfjsLib.getDocument(url).promise.then((pdf) => {
+                pdfDoc = pdf;
+                renderSpread(currentPage);
+            });
+        </script>
+    </body>
+</html>
