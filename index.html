@@ -4,121 +4,92 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>The Zone Menu</title>
-        <style>
-            body {
-                margin: 0;
-                background: #2e2e2e;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 100vh;
-                overflow: hidden;
-                font-family: sans-serif;
-            }
 
-            .book {
-                width: 90%;
-                max-width: 1000px;
-                display: flex;
-                position: relative;
-                perspective: 2000px;
-            }
-
-            .page {
-                width: 50%;
-                height: 100%;
-                background: white;
-                overflow: hidden;
-                transition: transform 1s ease;
-                backface-visibility: hidden;
-                box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-                transform-origin: left;
-            }
-
-            .page canvas {
-                width: 100%;
-                height: auto;
-                display: block;
-            }
-
-            #left-page {
-                transform-origin: right center;
-                z-index: 1;
-            }
-
-            #right-page {
-                transform-origin: left center;
-                z-index: 2;
-            }
-
-            .page.flip {
-                transform: rotateY(-180deg);
-            }
-
-            .page.flip_mirrored {
-                transform: rotateY(180deg);
-            }
-
-            .nav-btn {
-                position: absolute;
-                top: 50%;
-                transform: translateY(-50%);
-                font-size: 2rem;
-                background: rgba(0, 0, 0, 0.4);
-                color: white;
-                border: none;
-                padding: 10px;
-                cursor: pointer;
-                z-index: 10;
-            }
-
-            #prev-btn {
-                left: -50px;
-            }
-
-            #next-btn {
-                right: -50px;
-            }
-
-            .hidden {
-                visibility: hidden;
-            }
-        </style>
+        <link href="./styles.css" rel="stylesheet" />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap"
+            rel="stylesheet"
+        />
     </head>
     <body>
-        <div class="book">
-            <button class="nav-btn" id="prev-btn">&#8592;</button>
-            <div class="page" id="left-page">
-                <canvas id="canvas-left"></canvas>
+        <div class="container">
+            <div id="loading-message" class="">Loading PDF...</div>
+
+            <div class="book hidden" id="book-container">
+                <div class="page" id="left-page">
+                    <canvas id="canvas-left"></canvas>
+                </div>
+                <div class="page" id="right-page">
+                    <canvas id="canvas-right"></canvas>
+                </div>
             </div>
-            <div class="page" id="right-page">
-                <canvas id="canvas-right"></canvas>
+
+            <div class="button-container">
+                <button class="nav-btn" id="prev-btn">&lt;</button>
+                <span id="page-number"></span>
+                <button class="nav-btn" id="next-btn">&gt;</button>
             </div>
-            <button class="nav-btn" id="next-btn">&#8594;</button>
         </div>
 
-        <!-- PDF.js library -->
         <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
         <script>
-            const url = "menu.pdf";
-            //const url =
-            //    "https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf";
-            const pdfjsLib = window["pdfjs-dist/build/pdf"];
+            pdfjsLib.GlobalWorkerOptions.workerSrc =
+                "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+            const pdfUrl =
+                "https://raw.githubusercontent.com/tomato-alex/TheZone/master/menu.pdf";
 
             let pdfDoc = null;
             let currentPage = 1;
 
-            const canvasLeft = document.getElementById("canvas-left");
-            const canvasRight = document.getElementById("canvas-right");
-            const ctxLeft = canvasLeft.getContext("2d");
-            const ctxRight = canvasRight.getContext("2d");
+            const loadingMessage = document.getElementById("loading-message");
+            const bookContainer = document.getElementById("book-container");
+            const buttonContainer = document.querySelector(".button-container"); // Get new button container
 
+            const canvasLeft = document.getElementById("canvas-left");
+            const ctxLeft = canvasLeft.getContext("2d");
             const leftPage = document.getElementById("left-page");
+
+            const canvasRight = document.getElementById("canvas-right");
+            const ctxRight = canvasRight.getContext("2d");
             const rightPage = document.getElementById("right-page");
 
-            function renderPage(num, canvas, ctx) {
+            const prevBtn = document.getElementById("prev-btn");
+            const nextBtn = document.getElementById("next-btn");
+            const pageNumberSpan = document.getElementById("page-number");
+
+            let startX = 0;
+            let currentX = 0;
+            let isSwiping = false;
+            const swipeThreshold = 50;
+
+            const breakpoint = 768;
+
+            function isMobileView() {
+                return window.innerWidth <= breakpoint;
+            }
+
+            function updatePageNumberDisplay() {
+                if (pdfDoc) {
+                    let displayPage = currentPage;
+                    if (isMobileView()) {
+                        pageNumberSpan.textContent = `${displayPage}/${pdfDoc.numPages}`;
+                    } else {
+                        pageNumberSpan.textContent = `${displayPage}/${pdfDoc.numPages}`;
+                    }
+                }
+            }
+
+            function renderPageToCanvas(pageNum, canvas, ctx) {
+                if (!pdfDoc || pageNum < 1 || pageNum > pdfDoc.numPages) {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    canvas.width = 0;
+                    canvas.height = 0;
+                    return;
+                }
+
                 pdfDoc
-                    .getPage(num)
+                    .getPage(pageNum)
                     .then((page) => {
                         const viewport = page.getViewport({ scale: 1.5 });
                         canvas.height = viewport.height;
@@ -130,77 +101,224 @@
                         };
                         page.render(renderContext);
                     })
-                    .catch(() => {
+                    .catch((error) => {
+                        console.error("Error rendering page:", error);
                         ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        canvas.width = 0;
+                        canvas.height = 0;
                     });
             }
 
-            /*function renderSpread(pageNum) {
-                if (pageNum < 1) pageNum = 1;
-                if (pageNum > pdfDoc.numPages) pageNum = pdfDoc.numPages;
+            function renderResponsivePages(pageNumToDisplay) {
+                currentPage = Math.max(
+                    1,
+                    Math.min(pageNumToDisplay, pdfDoc.numPages)
+                );
 
-                renderPage(pageNum, canvasLeft, ctxLeft);
-                renderPage(pageNum + 1, canvasRight, ctxRight);
-            }*/
-            function renderSpread(pageNum) {
-                // Reset both
                 ctxLeft.clearRect(0, 0, canvasLeft.width, canvasLeft.height);
                 ctxRight.clearRect(0, 0, canvasRight.width, canvasRight.height);
-                leftPage.classList.remove("flip-right");
-                rightPage.classList.remove("flip-left");
 
-                if (pageNum === 1) {
-                    console.log("rendering 1st page only");
-                    leftPage.classList.add("hidden");
-                    renderPage(1, canvasRight, ctxRight);
+                if (isMobileView()) {
+                    leftPage.style.display = "none";
+                    rightPage.style.width = "100%";
+                    rightPage.style.transformOrigin = "center center";
+
+                    renderPageToCanvas(currentPage, canvasRight, ctxRight);
+
+                    //prevBtn.classList.remove("hidden");
+                    //nextBtn.classList.remove("hidden");
+                    prevBtn.classList.toggle("hidden", currentPage === 1);
+                    nextBtn.classList.toggle(
+                        "hidden",
+                        currentPage === pdfDoc.numPages
+                    );
                 } else {
-                    leftPage.classList.remove("hidden");
-                    renderPage(pageNum - 1, canvasLeft, ctxLeft);
-                    renderPage(pageNum, canvasRight, ctxRight);
+                    leftPage.style.display = "block";
+                    leftPage.style.width = "50%";
+                    rightPage.style.width = "50%";
+                    leftPage.style.transformOrigin = "right center";
+                    rightPage.style.transformOrigin = "left center";
+
+                    if (currentPage === 1) {
+                        leftPage.classList.add("hidden");
+                        renderPageToCanvas(1, canvasRight, ctxRight);
+                        ctxLeft.clearRect(
+                            0,
+                            0,
+                            canvasLeft.width,
+                            canvasLeft.height
+                        );
+                        //prevBtn.classList.add("hidden");
+                    } else {
+                        leftPage.classList.remove("hidden");
+                        renderPageToCanvas(
+                            currentPage - 1,
+                            canvasLeft,
+                            ctxLeft
+                        );
+                        renderPageToCanvas(currentPage, canvasRight, ctxRight);
+                        //prevBtn.classList.remove("hidden");
+                    }
+
+                    nextBtn.classList.toggle(
+                        "hidden",
+                        currentPage >=
+                            pdfDoc.numPages -
+                                (pdfDoc.numPages % 2 === 0 ? 0 : 1)
+                    );
+                    if (pdfDoc.numPages === currentPage) {
+                        nextBtn.classList.add("hidden");
+                    }
                 }
+                updatePageNumberDisplay();
             }
 
-            function flipNext() {
-                if (currentPage + 2 <= pdfDoc.numPages) {
-                    //leftPage.classList.add("flip_mirrored");
-                    rightPage.classList.add("flip");
-                    setTimeout(() => {
-                        currentPage += 2;
-                        renderSpread(currentPage);
-                        //leftPage.classList.remove("flip_mirrored");
-                        rightPage.classList.remove("flip");
-                    }, 500);
-                }
-            }
+            function goToNextPage() {
+                if (!pdfDoc) return;
 
-            function flipPrev() {
-                if (currentPage - 2 >= 1) {
-                    leftPage.classList.add("flip_mirrored");
+                const pagesToAdvance = isMobileView() ? 1 : 2;
+                if (
+                    currentPage + pagesToAdvance <=
+                    pdfDoc.numPages + (isMobileView() ? 0 : 1)
+                ) {
                     //rightPage.classList.add("flip");
+
                     setTimeout(() => {
-                        currentPage -= 2;
-                        renderSpread(currentPage);
-                        leftPage.classList.remove("flip_mirrored");
+                        currentPage += pagesToAdvance;
+                        renderResponsivePages(currentPage);
                         //rightPage.classList.remove("flip");
                     }, 500);
                 }
             }
 
-            document
-                .getElementById("next-btn")
-                .addEventListener("click", flipNext);
-            document
-                .getElementById("prev-btn")
-                .addEventListener("click", flipPrev);
-            window.addEventListener("keydown", (e) => {
-                if (e.key === "ArrowRight") flipNext();
-                if (e.key === "ArrowLeft") flipPrev();
+            function goToPrevPage() {
+                if (!pdfDoc) return;
+
+                const pagesToAdvance = isMobileView() ? 1 : 2;
+                let targetPage;
+                if (isMobileView()) {
+                    targetPage = currentPage - 1;
+                } else {
+                    targetPage = currentPage - 2;
+                    if (currentPage === 1) {
+                        return;
+                    } else if (currentPage === 2) {
+                        targetPage = 1;
+                    }
+                }
+
+                if (targetPage >= 1) {
+                    //leftPage.classList.add("flip_mirrored");
+
+                    setTimeout(() => {
+                        currentPage = targetPage;
+                        renderResponsivePages(currentPage);
+                        //leftPage.classList.remove("flip_mirrored");
+                    }, 500);
+                }
+            }
+
+            // --- Touch/Swipe Event Listeners for Mobile ---
+            mainTouchElement = rightPage;
+
+            mainTouchElement.addEventListener("touchstart", (e) => {
+                if (!isMobileView() || !pdfDoc) return;
+
+                startX = e.touches[0].clientX;
+                currentX = startX;
+                isSwiping = true;
+                mainTouchElement.style.transition = "none";
             });
 
-            pdfjsLib.getDocument(url).promise.then((pdf) => {
-                pdfDoc = pdf;
-                renderSpread(currentPage);
+            mainTouchElement.addEventListener(
+                "touchmove",
+                (e) => {
+                    if (!isSwiping) return;
+
+                    currentX = e.touches[0].clientX;
+                    const deltaX = currentX - startX;
+                    const deltaY = e.touches[0].clientY - e.touches[0].clientY;
+
+                    //mainTouchElement.style.transform = `translateX(${deltaX}px)`;
+
+                    if (
+                        Math.abs(deltaX) > Math.abs(deltaY) &&
+                        Math.abs(deltaX) > 10
+                    ) {
+                        e.preventDefault();
+                    }
+                },
+                { passive: false }
+            );
+
+            mainTouchElement.addEventListener("touchend", (e) => {
+                if (!isSwiping) return;
+
+                const deltaX = currentX - startX;
+                isSwiping = false;
+
+                mainTouchElement.style.transition = "";
+
+                if (Math.abs(deltaX) > swipeThreshold) {
+                    if (deltaX < 0) {
+                        goToNextPage();
+                    } else {
+                        goToPrevPage();
+                    }
+                }
+
+                mainTouchElement.style.transform = "";
             });
+
+            // Initial load of PDF
+            loadingMessage.classList.remove("hidden");
+            bookContainer.classList.add("hidden");
+            buttonContainer.classList.add("hidden"); // Hide buttons initially too
+
+            pdfjsLib
+                .getDocument(pdfUrl)
+                .promise.then((pdf) => {
+                    pdfDoc = pdf;
+                    currentPage = 1;
+
+                    renderResponsivePages(currentPage);
+
+                    loadingMessage.classList.add("hidden");
+                    bookContainer.classList.remove("hidden");
+                    buttonContainer.classList.remove("hidden"); // Show buttons after load
+                })
+                .catch((error) => {
+                    console.error("Error loading PDF from URL:", error);
+                    loadingMessage.classList.add("hidden");
+                    bookContainer.classList.add("hidden");
+                    buttonContainer.classList.add("hidden"); // Keep buttons hidden on error
+                    loadingMessage.textContent =
+                        "Failed to load PDF. Please check the URL.";
+                    loadingMessage.classList.remove("hidden");
+                    loadingMessage.style.color = "red";
+                });
+
+            // Event listeners for navigation buttons
+            nextBtn.addEventListener("click", goToNextPage);
+            prevBtn.addEventListener("click", goToPrevPage);
+
+            // Keyboard navigation
+            window.addEventListener("keydown", (e) => {
+                if (e.key === "ArrowRight") goToNextPage();
+                if (e.key === "ArrowLeft") goToPrevPage();
+            });
+
+            let resizeTimeout;
+            window.addEventListener("resize", () => {
+                clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(() => {
+                    renderResponsivePages(currentPage);
+                }, 250);
+            });
+
+            // Initially hide buttons until PDF is loaded (renderResponsivePages handles their final state)
+            prevBtn.classList.add("hidden");
+            nextBtn.classList.add("hidden");
         </script>
     </body>
 </html>
