@@ -13,7 +13,7 @@
     </head>
     <body>
         <div class="container">
-            <div id="loading-message" class="">Loading PDF...</div>
+            <div id="loading-message" class="">Loading Menu...</div>
 
             <div class="book hidden" id="book-container">
                 <div class="page" id="left-page">
@@ -28,6 +28,8 @@
                 <button class="nav-btn" id="prev-btn">&lt;</button>
                 <span id="page-number"></span>
                 <button class="nav-btn" id="next-btn">&gt;</button>
+
+                <button class="nav-btn" id="zoom-button">+</button>
             </div>
         </div>
 
@@ -44,39 +46,73 @@
 
             const loadingMessage = document.getElementById("loading-message");
             const bookContainer = document.getElementById("book-container");
-            const buttonContainer = document.querySelector(".button-container"); // Get new button container
+            const buttonContainer = document.querySelector(".button-container");
 
             const canvasLeft = document.getElementById("canvas-left");
-            const ctxLeft = canvasLeft.getContext("2d");
+            const ctxLeft = canvasLeft.getContext("2d", {
+                willReadFrequently: true,
+            });
             const leftPage = document.getElementById("left-page");
 
             const canvasRight = document.getElementById("canvas-right");
-            const ctxRight = canvasRight.getContext("2d");
+            const ctxRight = canvasRight.getContext("2d", {
+                willReadFrequently: true,
+            });
             const rightPage = document.getElementById("right-page");
+            const book = document.getElementById("book-container");
 
             const prevBtn = document.getElementById("prev-btn");
             const nextBtn = document.getElementById("next-btn");
             const pageNumberSpan = document.getElementById("page-number");
 
             let startX = 0;
+            let startY = 0;
             let currentX = 0;
+            let currentY = 0;
             let isSwiping = false;
-            const swipeThreshold = 50;
+            let hasSwiped = false;
+            const swipeThreshold = 70;
 
             const breakpoint = 768;
 
+            // Double-tap variables
+            let lastTapTime = 0;
+            const doubleTapDelay = 300; // milliseconds
+
+            const zoomBtn = document.getElementById("zoom-button");
+
+            const minZoom = 0.85;
+            const maxZoom = 1.75;
+            let zoomLevel = minZoom;
+
+            let offsetX = 0; // Current pan offset X
+            let offsetY = 0; // Current pan offset Y
+
+            // Pinch-to-zoom variables
+            let initialPinchDistance = null;
+            let initialZoomLevel = minZoom;
+
+            zoomBtn.addEventListener("click", () => {
+                if (zoomLevel > minZoom) {
+                    zoomLevel = minZoom; // Zoom out to min
+                    zoomBtn.textContent = "+";
+                } else {
+                    zoomLevel = maxZoom; // Zoom in to max
+                    zoomBtn.textContent = "−";
+                }
+                offsetX = 0; // Reset pan on zoom change
+                offsetY = 0; // Reset pan on zoom change
+                renderResponsivePages(currentPage);
+            });
+
             function isMobileView() {
-                return window.innerWidth <= breakpoint;
+                return window.innerWidth <= window.innerHeight;
             }
 
             function updatePageNumberDisplay() {
                 if (pdfDoc) {
                     let displayPage = currentPage;
-                    if (isMobileView()) {
-                        pageNumberSpan.textContent = `${displayPage}/${pdfDoc.numPages}`;
-                    } else {
-                        pageNumberSpan.textContent = `${displayPage}/${pdfDoc.numPages}`;
-                    }
+                    pageNumberSpan.textContent = `${displayPage}/${pdfDoc.numPages}`;
                 }
             }
 
@@ -91,9 +127,47 @@
                 pdfDoc
                     .getPage(pageNum)
                     .then((page) => {
-                        const viewport = page.getViewport({ scale: 1.5 });
+                        const internalScale = 1.5;
+                        const viewport = page.getViewport({
+                            scale: internalScale,
+                        });
+
                         canvas.height = viewport.height;
                         canvas.width = viewport.width;
+
+                        const a4Ratio = 1 / Math.sqrt(2);
+
+                        if (isMobileView()) {
+                            const screenWidth = window.innerWidth * 0.95;
+                            let calculatedWidth = screenWidth * zoomLevel;
+                            // Ensure the image doesn't get smaller than the screen width when zoomed out
+                            if (zoomLevel === minZoom) {
+                                calculatedWidth = screenWidth;
+                            } else if (zoomLevel === maxZoom) {
+                                calculatedWidth = screenWidth * maxZoom;
+                            }
+
+                            const calculatedHeight = calculatedWidth / a4Ratio;
+
+                            canvas.style.width = `${calculatedWidth}px`;
+                            canvas.style.height = `${calculatedHeight}px`;
+
+                            // Set canvas position to allow panning
+                            canvas.style.position = "relative";
+                            canvas.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+                        } else {
+                            const screenHeight = window.innerHeight * 0.95;
+                            const calculatedWidth = screenHeight * a4Ratio;
+
+                            canvas.style.height = `${screenHeight}px`;
+                            canvas.style.width = `${calculatedWidth}px`;
+
+                            // For desktop, reset pan and position
+                            canvas.style.position = "static";
+                            canvas.style.transform = `translate(0px, 0px)`;
+                            offsetX = 0;
+                            offsetY = 0;
+                        }
 
                         const renderContext = {
                             canvasContext: ctx,
@@ -125,8 +199,6 @@
 
                     renderPageToCanvas(currentPage, canvasRight, ctxRight);
 
-                    //prevBtn.classList.remove("hidden");
-                    //nextBtn.classList.remove("hidden");
                     prevBtn.classList.toggle("hidden", currentPage === 1);
                     nextBtn.classList.toggle(
                         "hidden",
@@ -148,7 +220,6 @@
                             canvasLeft.width,
                             canvasLeft.height
                         );
-                        //prevBtn.classList.add("hidden");
                     } else {
                         leftPage.classList.remove("hidden");
                         renderPageToCanvas(
@@ -157,7 +228,6 @@
                             ctxLeft
                         );
                         renderPageToCanvas(currentPage, canvasRight, ctxRight);
-                        //prevBtn.classList.remove("hidden");
                     }
 
                     nextBtn.classList.toggle(
@@ -181,13 +251,11 @@
                     currentPage + pagesToAdvance <=
                     pdfDoc.numPages + (isMobileView() ? 0 : 1)
                 ) {
-                    //rightPage.classList.add("flip");
-
-                    setTimeout(() => {
-                        currentPage += pagesToAdvance;
-                        renderResponsivePages(currentPage);
-                        //rightPage.classList.remove("flip");
-                    }, 500);
+                    currentPage += pagesToAdvance;
+                    //currentX = 0;
+                    offsetX = 0; // Reset pan on page change
+                    offsetY = 0; // Reset pan on page change
+                    renderResponsivePages(currentPage);
                 }
             }
 
@@ -208,72 +276,235 @@
                 }
 
                 if (targetPage >= 1) {
-                    //leftPage.classList.add("flip_mirrored");
-
-                    setTimeout(() => {
-                        currentPage = targetPage;
-                        renderResponsivePages(currentPage);
-                        //leftPage.classList.remove("flip_mirrored");
-                    }, 500);
+                    //setTimeout(() => {
+                    currentPage = targetPage;
+                    //currentX = 0;
+                    offsetX = 0; // Reset pan on page change
+                    offsetY = 0; // Reset pan on page change
+                    renderResponsivePages(currentPage);
+                    //}, 0);
                 }
             }
 
             // --- Touch/Swipe Event Listeners for Mobile ---
-            mainTouchElement = rightPage;
+            mainTouchElement = book;
 
             mainTouchElement.addEventListener("touchstart", (e) => {
                 if (!isMobileView() || !pdfDoc) return;
 
-                startX = e.touches[0].clientX;
-                currentX = startX;
-                isSwiping = true;
-                mainTouchElement.style.transition = "none";
+                if (e.touches.length === 2) {
+                    // Pinch gesture starts
+                    isSwiping = false; // Disable single-finger swipe
+                    initialPinchDistance = getPinchDistance(e.touches);
+                    initialZoomLevel = zoomLevel;
+                    rightPage.classList.add("no-transition");
+                } else if (e.touches.length === 1) {
+                    const currentTime = new Date().getTime();
+                    const tapLength = currentTime - lastTapTime;
+
+                    if (tapLength < doubleTapDelay && tapLength > 0) {
+                        // Double tap detected
+                        console.log("Double tap detected!");
+                        // Toggle zoom level
+                        if (zoomLevel > minZoom) {
+                            zoomLevel = minZoom;
+                            zoomBtn.textContent = "+";
+                        } else {
+                            zoomLevel = maxZoom;
+                            zoomBtn.textContent = "−";
+                        }
+                        offsetX = 0; // Reset pan on zoom change
+                        offsetY = 0; // Reset pan on zoom change
+                        renderResponsivePages(currentPage);
+                        lastTapTime = 0; // Reset lastTapTime to prevent triple tap
+                        isSwiping = false; // Disable swipe on double tap
+                        return; // Exit to prevent single tap logic
+                    }
+
+                    // Single-finger pan or swipe
+                    if (zoomLevel <= minZoom) {
+                        // Page turning logic
+                        console.log("touch start here");
+                        //currentX = startX;
+                        startX = e.touches[0].clientX;
+                        isSwiping = true;
+                        rightPage.classList.add("no-transition");
+                    } else {
+                        // Panning logic
+                        startX = e.touches[0].clientX - offsetX;
+                        startY = e.touches[0].clientY - offsetY;
+                        isSwiping = true;
+                        rightPage.classList.add("no-transition");
+                    }
+                    lastTapTime = currentTime;
+                }
             });
 
             mainTouchElement.addEventListener(
                 "touchmove",
                 (e) => {
-                    if (!isSwiping) return;
+                    if (!isMobileView() || !pdfDoc) return;
 
-                    currentX = e.touches[0].clientX;
-                    const deltaX = currentX - startX;
-                    const deltaY = e.touches[0].clientY - e.touches[0].clientY;
-
-                    //mainTouchElement.style.transform = `translateX(${deltaX}px)`;
+                    e.preventDefault();
 
                     if (
-                        Math.abs(deltaX) > Math.abs(deltaY) &&
-                        Math.abs(deltaX) > 10
+                        e.touches.length === 2 &&
+                        initialPinchDistance !== null
                     ) {
-                        e.preventDefault();
+                        // Pinch gesture in progress
+
+                        const currentPinchDistance = getPinchDistance(
+                            e.touches
+                        );
+                        const scaleFactor =
+                            currentPinchDistance / initialPinchDistance;
+                        let newZoomLevel = initialZoomLevel * scaleFactor;
+
+                        // Clamp zoom level within minZoom and maxZoom
+                        newZoomLevel = Math.max(
+                            minZoom,
+                            Math.min(maxZoom, newZoomLevel)
+                        );
+
+                        if (newZoomLevel !== zoomLevel) {
+                            //zoomLevel = newZoomLevel;
+                            if (scaleFactor > 1) {
+                                zoomLevel = maxZoom;
+                                zoomBtn.textContent = "−";
+                            } else {
+                                zoomLevel = minZoom;
+                                zoomBtn.textContent = "+";
+                            }
+                            //renderResponsivePages(currentPage); // Re-render with new zoom --> Here redo.
+                        }
+                    } else if (isSwiping && e.touches.length === 1) {
+                        const newCurrentX = e.touches[0].clientX;
+                        const newCurrentY = e.touches[0].clientY;
+
+                        if (zoomLevel <= minZoom) {
+                            // Page turning logic
+                            currentX = newCurrentX;
+
+                            const deltaX = newCurrentX - startX;
+                            const deltaY = startY - newCurrentY;
+
+                            if (
+                                Math.abs(deltaX) > Math.abs(deltaY) &&
+                                Math.abs(deltaX) > 10
+                            ) {
+                                e.preventDefault(); // Prevent vertical scrolling if horizontal swipe is dominant
+                            }
+
+                            hasSwiped = true;
+                        } else {
+                            // Panning logic
+
+                            e.preventDefault(); // Prevent default scroll behavior for panning
+
+                            const newOffsetX = newCurrentX - startX;
+                            const newOffsetY = startY - newCurrentY; // Get canvas dimensions
+
+                            const canvas = canvasRight;
+
+                            const canvasWidth = parseFloat(canvas.style.width);
+                            const canvasHeight = parseFloat(
+                                canvas.style.height
+                            );
+
+                            // Get container dimensions (viewport)
+                            const containerWidth = rightPage.clientWidth;
+                            const containerHeight = rightPage.clientHeight;
+
+                            // Calculate boundaries for panning
+                            // // reverse for x and y for some reason, check documentation
+                            // // here min is the negative scroll (left)
+                            // // max is start pos
+                            // // for y min is fine
+                            // // how do we calc max???
+                            const minPanX = -Math.max(
+                                0,
+                                canvasWidth - containerWidth
+                            );
+                            const maxPanX = 0;
+
+                            const minPanY = -Math.max(
+                                0,
+                                canvasHeight - containerHeight
+                            ); //const maxPanY = -minPanY;
+                            const maxPanY = -minPanX; // Apply boundaries, ensuring not to pan too far
+
+                            offsetX = Math.max(
+                                minPanX,
+                                Math.min(maxPanX, newOffsetX)
+                            );
+                            offsetY = -Math.max(
+                                minPanY,
+                                Math.min(maxPanY, newOffsetY)
+                            );
+
+                            // Apply the transform
+                            canvas.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+                        }
                     }
                 },
                 { passive: false }
             );
 
             mainTouchElement.addEventListener("touchend", (e) => {
-                if (!isSwiping) return;
+                console.log("End swipe");
+                if (!isMobileView() || !pdfDoc) return;
 
-                const deltaX = currentX - startX;
-                isSwiping = false;
+                rightPage.classList.remove("no-transition");
 
-                mainTouchElement.style.transition = "";
+                if (initialPinchDistance !== null) {
+                    // End of pinch gesture
+                    initialPinchDistance = null;
+                    initialZoomLevel = minZoom; // Reset for next pinch
+                    // After pinch, if we are at minZoom, reset pan
 
-                if (Math.abs(deltaX) > swipeThreshold) {
-                    if (deltaX < 0) {
-                        goToNextPage();
+                    offsetX = 0;
+                    offsetY = 0;
+                    renderResponsivePages(currentPage);
+                } else if (isSwiping && hasSwiped && e.touches.length === 0) {
+                    // Single finger swipe ended
+                    if (zoomLevel <= minZoom) {
+                        const deltaX = currentX - startX;
+
+                        console.log("touchend here");
+                        hasSwiped = false;
+                        if (Math.abs(deltaX) > swipeThreshold) {
+                            if (deltaX < 0) {
+                                currentX = startX;
+                                goToNextPage();
+                            } else {
+                                currentX = startX;
+                                goToPrevPage();
+                            }
+                        }
+                        // Reset canvas transform if it was used for page turning
+                        canvasRight.style.transform = `translate(${offsetX}px, ${offsetY}px)`; // Maintain pan even if it was just a swipe
                     } else {
-                        goToPrevPage();
+                        // For panning, the offsetX and offsetY are already updated in touchmove
+                        // No need to reset transform here, as it should maintain the panned position
                     }
                 }
-
-                mainTouchElement.style.transform = "";
+                isSwiping = false;
             });
+
+            // Helper function to calculate distance between two touches for pinch-to-zoom
+            function getPinchDistance(touches) {
+                const touch1 = touches[0];
+                const touch2 = touches[1];
+                return Math.sqrt(
+                    Math.pow(touch2.clientX - touch1.clientX, 2) +
+                        Math.pow(touch2.clientY - touch1.clientY, 2)
+                );
+            }
 
             // Initial load of PDF
             loadingMessage.classList.remove("hidden");
             bookContainer.classList.add("hidden");
-            buttonContainer.classList.add("hidden"); // Hide buttons initially too
+            buttonContainer.classList.add("hidden");
 
             pdfjsLib
                 .getDocument(pdfUrl)
@@ -285,13 +516,13 @@
 
                     loadingMessage.classList.add("hidden");
                     bookContainer.classList.remove("hidden");
-                    buttonContainer.classList.remove("hidden"); // Show buttons after load
+                    buttonContainer.classList.remove("hidden");
                 })
                 .catch((error) => {
                     console.error("Error loading PDF from URL:", error);
                     loadingMessage.classList.add("hidden");
                     bookContainer.classList.add("hidden");
-                    buttonContainer.classList.add("hidden"); // Keep buttons hidden on error
+                    buttonContainer.classList.add("hidden");
                     loadingMessage.textContent =
                         "Failed to load PDF. Please check the URL.";
                     loadingMessage.classList.remove("hidden");
@@ -312,11 +543,12 @@
             window.addEventListener("resize", () => {
                 clearTimeout(resizeTimeout);
                 resizeTimeout = setTimeout(() => {
+                    offsetX = 0; // Reset pan on resize
+                    offsetY = 0; // Reset pan on resize
                     renderResponsivePages(currentPage);
                 }, 250);
             });
 
-            // Initially hide buttons until PDF is loaded (renderResponsivePages handles their final state)
             prevBtn.classList.add("hidden");
             nextBtn.classList.add("hidden");
         </script>
